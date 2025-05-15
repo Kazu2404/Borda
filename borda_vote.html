@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>アンケート管理 - ペルソナ3風</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500&display=swap');
+
+    body {
+      background: #003366;
+      color: #fff;
+      font-family: 'Orbitron', sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h1, h2 {
+      color: #00bfff;
+      text-shadow: 1px 1px #000;
+      border-bottom: 3px solid #00bfff;
+      padding-bottom: 5px;
+    }
+    input, select, button {
+      font-family: 'Orbitron', sans-serif;
+      padding: 5px 10px;
+      margin: 5px;
+      background: #001f3f;
+      color: #00ffff;
+      border: 1px solid #00bfff;
+    }
+    input[type="text"], input[type="number"], input[type="password"] {
+      width: 300px;
+    }
+    button:hover {
+      background: #004080;
+    }
+    #loginSection, #editSection, #adminLoginSection {
+      display: none;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid #fff;
+      padding: 8px;
+    }
+    canvas { background: #fff; }
+  </style>
+</head>
+<body>
+  <h1>アンケート管理 - ペルソナ3風</h1>
+
+  <div id="loginSection">
+    <p>編集パスワードを入力：</p>
+    <input type="password" id="passwordInput">
+    <button id="loginBtn">ログイン</button>
+    <p id="loginMsg" style="color:yellow;"></p>
+  </div>
+
+  <div id="adminLoginSection">
+    <p>編集モードに戻るにはパスワードを入力：</p>
+    <input type="password" id="adminPasswordInput">
+    <button id="adminLoginBtn">編集モードへ</button>
+    <p id="adminLoginMsg" style="color:yellow;"></p>
+  </div>
+
+  <div id="editSection">
+    <h2>編集モード</h2>
+    <label>選択肢の数：<input type="number" id="choiceCountInput" min="1" max="50"></label>
+    <ul id="choiceList"></ul>
+    <button id="saveAndVoteBtn">投票画面に移動</button>
+  </div>
+
+  <div id="voteSection">
+    <h2>投票モード</h2>
+    <form id="voteForm">
+      <table>
+        <thead><tr><th>選択肢</th><th>順位</th></tr></thead>
+        <tbody id="choicesBody"></tbody>
+      </table>
+      <p id="voteError" style="color:yellow;"></p>
+      <button type="submit">投票する</button>
+    </form>
+    <div id="result"></div>
+    <canvas id="resultChart" width="600" height="400"></canvas>
+    <button id="downloadBtn">結果を保存</button>
+    <button id="toAdminBtn">編集画面</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const correctPassword = 'waseda';
+    let choices = ['選択肢A', '選択肢B', '選択肢C'];
+    let results = Array(50).fill(0);
+
+    const loginSection = document.getElementById('loginSection');
+    const adminLoginSection = document.getElementById('adminLoginSection');
+    const editSection = document.getElementById('editSection');
+    const voteSection = document.getElementById('voteSection');
+    const passwordInput = document.getElementById('passwordInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const loginMsg = document.getElementById('loginMsg');
+    const adminPasswordInput = document.getElementById('adminPasswordInput');
+    const adminLoginBtn = document.getElementById('adminLoginBtn');
+    const adminLoginMsg = document.getElementById('adminLoginMsg');
+    const choiceCountInput = document.getElementById('choiceCountInput');
+    const choiceList = document.getElementById('choiceList');
+    const saveAndVoteBtn = document.getElementById('saveAndVoteBtn');
+    const choicesBody = document.getElementById('choicesBody');
+    const voteForm = document.getElementById('voteForm');
+    const voteError = document.getElementById('voteError');
+    const resultDiv = document.getElementById('result');
+    const resultChart = document.getElementById('resultChart').getContext('2d');
+    const toAdminBtn = document.getElementById('toAdminBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let voteData = [];
+
+    voteSection.style.display = 'block'; // 初期表示：投票画面
+    renderVoteForm();
+
+    loginBtn.onclick = () => {
+      if (passwordInput.value === correctPassword) {
+        loginSection.style.display = 'none';
+        editSection.style.display = 'block';
+        choiceCountInput.value = choices.length;
+        renderChoiceList();
+      } else {
+        loginMsg.textContent = 'パスワードが違います。';
+      }
+    };
+
+    adminLoginBtn.onclick = () => {
+      if (adminPasswordInput.value === correctPassword) {
+        adminLoginSection.style.display = 'none';
+        editSection.style.display = 'block';
+        renderChoiceList();
+      } else {
+        adminLoginMsg.textContent = 'パスワードが違います。';
+      }
+    };
+
+    choiceCountInput.addEventListener('change', () => {
+      let newCount = parseInt(choiceCountInput.value);
+      if (newCount > choices.length) {
+        for (let i = choices.length; i < newCount; i++) choices.push('');
+      } else {
+        choices = choices.slice(0, newCount);
+      }
+      renderChoiceList();
+    });
+
+    function renderChoiceList() {
+      choiceList.innerHTML = '';
+      choices.forEach((c, i) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<input type="text" value="${c}" data-index="${i}" class="editChoiceInput">`;
+        choiceList.appendChild(li);
+      });
+    }
+
+    choiceList.addEventListener('input', e => {
+      if (e.target.classList.contains('editChoiceInput')) {
+        const idx = e.target.dataset.index;
+        choices[idx] = e.target.value;
+      }
+    });
+
+    saveAndVoteBtn.onclick = () => {
+      editSection.style.display = 'none';
+      voteSection.style.display = 'block';
+      renderVoteForm();
+    };
+
+    function renderVoteForm() {
+      choicesBody.innerHTML = '';
+      choices.forEach((c, i) => {
+        const row = document.createElement('tr');
+        const cell1 = document.createElement('td');
+        const cell2 = document.createElement('td');
+        const select = document.createElement('select');
+        select.dataset.index = i;
+        select.name = 'rank';
+        select.innerHTML = `<option value="">--</option>` + [...Array(choices.length)].map((_, i) => `<option value="${i+1}">${i+1}位</option>`).join('');
+        select.addEventListener('change', validateRanks);
+        cell1.textContent = c || '(未入力)';
+        cell2.appendChild(select);
+        row.appendChild(cell1);
+        row.appendChild(cell2);
+        choicesBody.appendChild(row);
+      });
+    }
+
+    function validateRanks() {
+      const selects = document.querySelectorAll('select[name="rank"]');
+      const used = new Set();
+      selects.forEach(s => {
+        [...s.options].forEach(opt => {
+          opt.disabled = used.has(opt.value) && opt.value !== s.value;
+        });
+        if (s.value) used.add(s.value);
+      });
+    }
+
+    voteForm.onsubmit = e => {
+      e.preventDefault();
+      const selects = document.querySelectorAll('select[name="rank"]');
+      const ranks = [...selects].map(s => s.value);
+      if (ranks.includes('')) {
+        voteError.textContent = 'すべての選択肢に順位をつけてください';
+        return;
+      }
+      if (new Set(ranks).size !== ranks.length) {
+        voteError.textContent = '順位が重複しています';
+        return;
+      }
+      let score = Array(choices.length).fill(0);
+      ranks.forEach((r, i) => {
+        score[i] = choices.length - parseInt(r);
+      });
+      results = results.map((r, i) => r + score[i]);
+      voteData.push(score);
+      voteError.textContent = '';
+      showResults();
+    };
+
+    function showResults() {
+      resultDiv.innerHTML = '<h3>集計結果</h3>';
+      let list = '<ul>';
+      results.slice(0, choices.length).forEach((s, i) => {
+        list += `<li>${choices[i]}：${s}点</li>`;
+      });
+      list += '</ul>';
+      resultDiv.innerHTML += list;
+
+      new Chart(resultChart, {
+        type: 'bar',
+        data: {
+          labels: choices,
+          datasets: [{
+            label: '得点',
+            data: results.slice(0, choices.length),
+            backgroundColor: '#00bfff'
+          }]
+        },
+        options: {
+          responsive: false,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    downloadBtn.onclick = () => {
+      const blob = new Blob([JSON.stringify({choices, results: results.slice(0, choices.length), voteData}, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'borda_results.json';
+      link.click();
+    };
+
+    toAdminBtn.onclick = () => {
+      voteSection.style.display = 'none';
+      adminLoginSection.style.display = 'block';
+    };
+  </script>
+</body>
+</html>
